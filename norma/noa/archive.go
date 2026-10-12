@@ -94,9 +94,9 @@ func RenderArchive(in ArchiveRenderInput) []byte {
 	}
 	b.WriteString("---\n\n")
 
-	fmt.Fprintf(&b, "# 归档 %s · Tier %d · %s–%s\n\n", in.BlockID, in.Tier, in.StartRef, in.EndRef)
+	fmt.Fprintf(&b, "# Archive %s · Tier %d · %s–%s\n\n", in.BlockID, in.Tier, in.StartRef, in.EndRef)
 	if s := strings.TrimSpace(in.Summary); s != "" {
-		b.WriteString("**摘要**（当前在上下文中生效的版本）：\n\n")
+		b.WriteString("**Summary** (the version currently in effect in the context):\n\n")
 		for _, line := range strings.Split(s, "\n") {
 			b.WriteString("> ")
 			b.WriteString(line)
@@ -137,10 +137,10 @@ func writeBlockEntry(b *strings.Builder, blk CompressionBlock) {
 		b.WriteString("\n\n")
 	}
 	if blk.ArchiveRel != "" {
-		fmt.Fprintf(b, "> 下级归档：[`%s`](%s)\n", blk.ArchiveRel, relLink(blk.ArchiveRel))
+		fmt.Fprintf(b, "> Sub-archive: [`%s`](%s)\n", blk.ArchiveRel, relLink(blk.ArchiveRel))
 	}
 	if blk.ArchivePath != "" {
-		fmt.Fprintf(b, "> 绝对路径：`%s`\n", blk.ArchivePath)
+		fmt.Fprintf(b, "> Absolute path: `%s`\n", blk.ArchivePath)
 	}
 	b.WriteString("\n")
 }

@@ -109,8 +109,8 @@ func TestTierChainIsTraceableToOriginals(t *testing.T) {
 
 	var childPaths []string
 	for _, line := range strings.Split(string(t2body), "\n") {
-		if strings.HasPrefix(line, "> 绝对路径：`") {
-			p := strings.TrimSuffix(strings.TrimPrefix(line, "> 绝对路径：`"), "`")
+		if strings.HasPrefix(line, "> Absolute path: `") {
+			p := strings.TrimSuffix(strings.TrimPrefix(line, "> Absolute path: `"), "`")
 			childPaths = append(childPaths, p)
 		}
 	}

@@ -2,7 +2,7 @@
 // llm.Message into noa's flat representation and back, persists state and
 // archives, and exposes the Compress tool.
 //
-// See docs/noa-实施方案.md for the specification.
+// See docs/noa-implementation-plan.md for the specification.
 package noaadapter
 
 import (

@@ -40,11 +40,11 @@ func (s *Server) wireInterceptReviewer() {
 			}
 		}
 		if profileID == 0 {
-			return intercept.Decision{}, fmt.Errorf("未配置可用的裁判模型")
+			return intercept.Decision{}, fmt.Errorf("no usable judge model configured")
 		}
 		prov, _, ok := s.providerForProfile(profileID)
 		if !ok {
-			return intercept.Decision{ProfileID: profileID}, fmt.Errorf("裁判模型 profile %d 不可用", profileID)
+			return intercept.Decision{ProfileID: profileID}, fmt.Errorf("judge model profile %d is unavailable", profileID)
 		}
 		// Tag this call's usage as the "judge" lane so the config page can report
 		// how much the fallback approval has spent, separate from model profiles.
@@ -55,7 +55,7 @@ func (s *Server) wireInterceptReviewer() {
 		}
 		v := intercept.ParseVerdict(text)
 		if v.Action == "" {
-			return intercept.Decision{ProfileID: profileID}, fmt.Errorf("模型裁决格式无效，必须包含裁决、实际操作、成功后的后果和命中规则")
+			return intercept.Decision{ProfileID: profileID}, fmt.Errorf("invalid model verdict format: it must include the verdict, the actual operation, the consequence if it succeeds, and the matched rule")
 		}
 		return intercept.Decision{Action: v.Action, Message: v.Reason, ProfileID: profileID}, nil
 	})
@@ -325,12 +325,12 @@ func interceptFilterParams(q url.Values) (db.InterceptApprovalFilter, error) {
 	switch filter.Status {
 	case "", "pending", "allowed", "denied", "timeout":
 	default:
-		return filter, fmt.Errorf("status 必须是 pending、allowed、denied 或 timeout")
+		return filter, fmt.Errorf("status must be pending, allowed, denied or timeout")
 	}
 	switch filter.DecisionSource {
 	case "", "model", "rule", "unknown":
 	default:
-		return filter, fmt.Errorf("decision_source 必须是 model、rule 或 unknown")
+		return filter, fmt.Errorf("decision_source must be model, rule or unknown")
 	}
 	return filter, nil
 }
@@ -364,7 +364,7 @@ func (s *Server) interceptDecide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Decision != "allowed" && req.Decision != "denied" {
-		writeErr(w, 400, "decision 必须是 allowed 或 denied")
+		writeErr(w, 400, "decision must be allowed or denied")
 		return
 	}
 	if err := s.m.interceptor.Decide(id, req.Decision == "allowed"); err != nil {
@@ -378,7 +378,7 @@ func (s *Server) interceptDecide(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
-// --- tool-config (全局工具拦截范围) ---
+// --- tool-config (global tool intercept scope) ---
 
 // interceptGetToolConfig returns the list of tool names that are currently
 // configured to enter the intercept rule system.
@@ -411,7 +411,7 @@ func (s *Server) interceptSetToolConfig(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, 200, map[string]any{"ok": true})
 }
 
-// --- LLM fallback judge config (全局模型兜底) ---
+// --- LLM fallback judge config (global model fallback) ---
 
 // interceptGetJudgeConfig returns the resolved judge configuration. Prompt is the
 // effective prompt (built-in template when unset), so the UI can prefill it.
@@ -429,13 +429,13 @@ func (s *Server) interceptSetJudgeConfig(w http.ResponseWriter, r *http.Request)
 	switch req.FailAction {
 	case "allow", "ask", "deny":
 	default:
-		writeErr(w, 400, "fail_action 必须是 allow、ask 或 deny")
+		writeErr(w, 400, "fail_action must be allow, ask or deny")
 		return
 	}
 	switch req.AskTimeoutAction {
 	case "allow", "deny":
 	default:
-		writeErr(w, 400, "ask_timeout_action 必须是 allow 或 deny")
+		writeErr(w, 400, "ask_timeout_action must be allow or deny")
 		return
 	}
 	if err := s.m.interceptor.SetJudgeConfig(req); err != nil {
@@ -480,29 +480,29 @@ type interceptRuleReq struct {
 
 func validateInterceptRuleReq(req interceptRuleReq) error {
 	if req.Name == "" {
-		return fmt.Errorf("name 不能为空")
+		return fmt.Errorf("name must not be empty")
 	}
 	switch req.MatchTarget {
 	case "tool_name", "tool_input":
 	default:
-		return fmt.Errorf("match_target 必须是 tool_name 或 tool_input")
+		return fmt.Errorf("match_target must be tool_name or tool_input")
 	}
 	switch req.MatchType {
 	case "string", "regex":
 	default:
-		return fmt.Errorf("match_type 必须是 string 或 regex")
+		return fmt.Errorf("match_type must be string or regex")
 	}
 	if req.Pattern == "" {
-		return fmt.Errorf("pattern 不能为空")
+		return fmt.Errorf("pattern must not be empty")
 	}
 	switch req.Action {
 	case "allow", "deny", "ask":
 	default:
-		return fmt.Errorf("action 必须是 allow、deny 或 ask")
+		return fmt.Errorf("action must be allow, deny or ask")
 	}
 	if req.MatchType == "regex" {
 		if _, err := regexp.Compile(req.Pattern); err != nil {
-			return fmt.Errorf("pattern 不是有效正则：%w", err)
+			return fmt.Errorf("pattern is not a valid regex: %w", err)
 		}
 	}
 	return nil
@@ -565,11 +565,11 @@ func (s *Server) interceptExecution(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if conv == nil {
-				writeErr(w, http.StatusGone, "对话已被删除")
+				writeErr(w, http.StatusGone, "conversation has been deleted")
 				return
 			}
 		}
-		writeErr(w, 404, "审批记录已被删除或不存在")
+		writeErr(w, 404, "approval record has been deleted or does not exist")
 		return
 	}
 	writeJSON(w, 200, map[string]any{"conversation_id": target.ConversationID, "task_id": target.TaskID, "session": target.Session, "seq": target.Seq, "items": activityDTOs(target.Items)})

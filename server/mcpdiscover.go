@@ -25,22 +25,22 @@ func connectMCP(ctx context.Context, m *db.MCPServer) (mcpClient, error) {
 	switch m.Transport {
 	case "stdio":
 		if m.Command == "" {
-			return nil, fmt.Errorf("stdio 传输缺少命令")
+			return nil, fmt.Errorf("stdio transport is missing a command")
 		}
 		return mcp.NewStdioClient(ctx, m.Name, m.Command, jsonStrMap(m.Env), jsonStrSlice(m.Args)...)
 	case "http":
 		if m.URL == "" {
-			return nil, fmt.Errorf("http 传输缺少 URL")
+			return nil, fmt.Errorf("http transport is missing a URL")
 		}
 		// env map doubles as HTTP headers (e.g. Authorization).
 		return mcphttp.New(ctx, m.Name, m.URL, jsonStrMap(m.Env), m.Insecure)
 	case "sse":
 		if m.URL == "" {
-			return nil, fmt.Errorf("sse 传输缺少 URL")
+			return nil, fmt.Errorf("sse transport is missing a URL")
 		}
 		return mcphttp.NewSSE(ctx, m.Name, m.URL, jsonStrMap(m.Env), m.Insecure)
 	default:
-		return nil, fmt.Errorf("未知传输方式 %q", m.Transport)
+		return nil, fmt.Errorf("unknown transport %q", m.Transport)
 	}
 }
 
@@ -63,7 +63,7 @@ func (s *Server) discoverAndCacheMCP(ctx context.Context, m *db.MCPServer) error
 	if err := s.m.pg.SaveMCPTools(m.ID, tools); err != nil {
 		return err
 	}
-	log.Printf("[mcp] %s 发现 %d 个工具并已缓存", m.Name, len(tools))
+	log.Printf("[mcp] %s discovered %d tools and cached them", m.Name, len(tools))
 	return nil
 }
 
@@ -74,7 +74,7 @@ func (s *Server) discoverAndCacheMCP(ctx context.Context, m *db.MCPServer) error
 func (s *Server) discoverEmptyMCPsOnStartup() {
 	servers, err := s.m.pg.ListMCP()
 	if err != nil {
-		log.Printf("[mcp] 启动自动发现: 读取列表失败: %v", err)
+		log.Printf("[mcp] startup auto-discovery: failed to read list: %v", err)
 		return
 	}
 	for _, m := range servers {
@@ -83,7 +83,7 @@ func (s *Server) discoverEmptyMCPsOnStartup() {
 		}
 		ctx, cancel := context.WithTimeout(s.ctx, 90*time.Second)
 		if err := s.discoverAndCacheMCP(ctx, m); err != nil {
-			log.Printf("[mcp] 启动自动发现 %s 失败: %v", m.Name, err)
+			log.Printf("[mcp] startup auto-discovery of %s failed: %v", m.Name, err)
 		}
 		cancel()
 	}

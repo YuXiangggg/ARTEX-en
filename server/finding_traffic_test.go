@@ -352,7 +352,7 @@ func TestFindingTrafficArchiveV3RoundTripAndRetry(t *testing.T) {
 	}
 	// The read tool enforces task visibility too.
 	result, err := s.toolGetFindingTraffic().Call(agent.WithRunInfo(ctx, agent.RunInfo{TaskID: sid}), json.RawMessage(fmt.Sprintf(`{"finding_id":"%d"}`, f.FindingID)), nil)
-	if err != nil || !strings.Contains(result.Flatten(), "不可读取") {
+	if err != nil || !strings.Contains(result.Flatten(), "not readable") {
 		t.Fatal(result, err)
 	}
 }
@@ -453,7 +453,7 @@ func TestFindingTrafficUTF8SegmentsAndInheritedWrites(t *testing.T) {
 	if _, err = s.m.traffic.DeleteHost("evidence.local"); err != nil {
 		t.Fatal(err)
 	}
-	result, err := s.toolUpdateFindingReport().Call(ctx, json.RawMessage(fmt.Sprintf(`{"finding_id":%d,"evidence_version":1,"report":"## 证据报告\n\n证据 #%d：已验证完整请求响应"}`, f.NodeID, list.Bindings[0].ID)), nil)
+	result, err := s.toolUpdateFindingReport().Call(ctx, json.RawMessage(fmt.Sprintf(`{"finding_id":%d,"evidence_version":1,"report":"## Evidence report\n\nEvidence #%d: full request/response verified"}`, f.NodeID, list.Bindings[0].ID)), nil)
 	if err != nil || result.IsError {
 		t.Fatal(result, err)
 	}

@@ -117,7 +117,7 @@ func (s *Server) runOneTaskArchiveJob() error {
 func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 	taskID := strconv.FormatInt(job.TaskID, 10)
 	if !s.beginTaskDelete(taskID) {
-		return errors.New("任务正在进行其他归档或删除操作")
+		return errors.New("task is undergoing another archive or delete operation")
 	}
 	committed := false
 	defer func() {
@@ -129,7 +129,7 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 	drainCtx, cancel := context.WithTimeout(s.ctx, taskDeleteDrainTimeout)
 	defer cancel()
 	if err := s.waitTaskQuiescent(drainCtx, taskID); err != nil {
-		return errors.New("任务仍有运行中的 Agent，请先暂停后重试归档")
+		return errors.New("task still has running Agents; pause them before retrying the archive")
 	}
 	if err := s.drainTaskSideQuestions(drainCtx, taskID); err != nil {
 		return err
@@ -170,7 +170,7 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 		return err
 	}
 	if snapshot.ExplorationID != task.ExplorationID {
-		return errors.New("任务探索记录在归档快照期间发生变化")
+		return errors.New("task exploration records changed during the archive snapshot")
 	}
 	if s.m.traffic != nil && len(snapshot.Hosts) > 0 {
 		_ = s.m.pg.UpdateTaskArchiveProgress(job.ID, "snapshot_traffic", 38)
@@ -220,13 +220,13 @@ func (s *Server) archiveTask(job *pgdb.TaskArchive) (runErr error) {
 	removePackage = false
 	if trafficStage != nil {
 		if err := trafficStage.Commit(); err != nil {
-			warning := "归档已完成，但独占流量热存储清理失败（归档包仍可恢复）：" + err.Error()
+			warning := "archive completed, but cleanup of exclusive traffic hot storage failed (the archive can still be restored): " + err.Error()
 			log.Printf("[task-archive] task %s: %s", taskID, warning)
 			_ = s.m.pg.AppendTaskArchiveWarning(job.ID, warning)
 		}
 	}
 	if err := fileStage.commit(); err != nil {
-		warning := "归档已完成，但暂存目录清理失败：" + err.Error()
+		warning := "archive completed, but staging directory cleanup failed: " + err.Error()
 		log.Printf("[task-archive] task %s: %s", taskID, warning)
 		_ = s.m.pg.AppendTaskArchiveWarning(job.ID, warning)
 	}
@@ -346,7 +346,7 @@ func (s *Server) restoreTaskArchivePayload(job *pgdb.TaskArchive, snapshot *pgdb
 	}
 	if len(warnings) > 0 {
 		if _, err := s.m.pg.Exploration(snapshot.ExplorationID).AppendActivity(pgdb.Activity{
-			Worker: "system", Kind: "system", Summary: "任务还原完成，但部分关联已降级", Detail: strings.Join(warnings, "\n"),
+			Worker: "system", Kind: "system", Summary: "task restore completed, but some associations were downgraded", Detail: strings.Join(warnings, "\n"),
 		}); err != nil {
 			log.Printf("[task-archive] persist restore warnings for task %d: %v", job.TaskID, err)
 		}
@@ -418,7 +418,7 @@ func (s *Server) deleteTaskArchive(job *pgdb.TaskArchive) error {
 
 func validateArchivePath(dataDir, candidate string) error {
 	if strings.TrimSpace(candidate) == "" {
-		return errors.New("归档包路径为空")
+		return errors.New("archive path is empty")
 	}
 	root, err := filepath.Abs(taskArchiveRoot(dataDir))
 	if err != nil {
@@ -430,7 +430,7 @@ func validateArchivePath(dataDir, candidate string) error {
 	}
 	relative, err := filepath.Rel(root, path)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
-		return errors.New("归档包路径不在受管目录内")
+		return errors.New("archive path is not inside the managed directory")
 	}
 	return nil
 }
@@ -449,7 +449,7 @@ func (s *Server) listTaskArchives(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getTaskArchive(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "归档 id 无效")
+		writeErr(w, 400, "invalid archive id")
 		return
 	}
 	item, err := s.m.pg.GetTaskArchive(id)
@@ -458,7 +458,7 @@ func (s *Server) getTaskArchive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if item == nil {
-		writeErr(w, 404, "归档不存在")
+		writeErr(w, 404, "Archive not found")
 		return
 	}
 	writeJSON(w, 200, item)
@@ -467,7 +467,7 @@ func (s *Server) getTaskArchive(w http.ResponseWriter, r *http.Request) {
 func (s *Server) queueTaskArchive(w http.ResponseWriter, r *http.Request) {
 	id, ok := canonicalTaskID(r.PathValue("id"))
 	if !ok {
-		writeErr(w, 400, "任务 id 无效")
+		writeErr(w, 400, "invalid task id")
 		return
 	}
 	numeric, _ := strconv.ParseInt(id, 10, 64)
@@ -483,7 +483,7 @@ func (s *Server) queueTaskArchive(w http.ResponseWriter, r *http.Request) {
 func (s *Server) queueTaskArchiveRestore(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "归档 id 无效")
+		writeErr(w, 400, "invalid archive id")
 		return
 	}
 	item, err := s.m.pg.QueueTaskArchiveRestore(id)
@@ -498,7 +498,7 @@ func (s *Server) queueTaskArchiveRestore(w http.ResponseWriter, r *http.Request)
 func (s *Server) queueTaskArchiveDelete(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathInt(r, "id")
 	if !ok {
-		writeErr(w, 400, "归档 id 无效")
+		writeErr(w, 400, "invalid archive id")
 		return
 	}
 	item, err := s.m.pg.QueueTaskArchiveDelete(id)
@@ -518,18 +518,18 @@ func (s *Server) queueTaskArchivesBatch(w http.ResponseWriter, r *http.Request) 
 	}
 	parsed := normalizeBatchTaskIDs(request.TaskIDs)
 	if len(parsed) == 0 {
-		writeErr(w, 400, "task_ids 不能为空")
+		writeErr(w, 400, "task_ids must not be empty")
 		return
 	}
 	if len(parsed) > 100 {
-		writeErr(w, 400, "一次最多处理 100 个任务")
+		writeErr(w, 400, "at most 100 tasks can be processed at once")
 		return
 	}
 	ids := make([]string, 0, len(parsed))
 	items := make([]archiveBatchItem, 0, len(parsed))
 	for _, item := range parsed {
 		if !item.valid {
-			items = append(items, archiveBatchItem{ID: item.id, Error: "任务 id 无效"})
+			items = append(items, archiveBatchItem{ID: item.id, Error: "invalid task id"})
 			continue
 		}
 		ids = append(ids, item.id)
@@ -592,16 +592,16 @@ func (s *Server) deleteTaskArchivesBatch(w http.ResponseWriter, r *http.Request)
 
 func normalizeArchiveIDs(ids []int64) ([]int64, error) {
 	if len(ids) == 0 {
-		return nil, errors.New("archive_ids 不能为空")
+		return nil, errors.New("archive_ids must not be empty")
 	}
 	if len(ids) > 100 {
-		return nil, errors.New("一次最多处理 100 个归档")
+		return nil, errors.New("at most 100 archives can be processed at once")
 	}
 	seen := map[int64]bool{}
 	out := make([]int64, 0, len(ids))
 	for _, id := range ids {
 		if id <= 0 {
-			return nil, fmt.Errorf("归档 id %d 无效", id)
+			return nil, fmt.Errorf("invalid archive id %d", id)
 		}
 		if !seen[id] {
 			seen[id] = true

@@ -18,7 +18,7 @@ func TestSettlementOnBudgetHit(t *testing.T) {
 	var toolsSeen [][]string
 	turns := [][]llm.StreamEvent{
 		toolTurn("a", "Bash", `{"command":"echo 1"}`), // turn 1 → hits MaxTurns=1
-		textTurn("已写回事实并总结"),                          // settlement turn → natural stop
+		textTurn("facts written back and summarized"), // settlement turn → natural stop
 	}
 	call := func(_ context.Context, req llm.CompletionRequest) iter.Seq2[llm.StreamEvent, error] {
 		names := make([]string, 0, len(req.Tools))
@@ -42,12 +42,12 @@ func TestSettlementOnBudgetHit(t *testing.T) {
 		PermissionMode: permission.ModeBypass,
 		WorkingDir:     t.TempDir(),
 		MaxTurns:       1,
-		Settlement:     &Settlement{Prompt: "SETTLE_NOW 请写回事实", DisabledTools: []string{"Bash"}},
+		Settlement:     &Settlement{Prompt: "SETTLE_NOW please write back the facts", DisabledTools: []string{"Bash"}},
 	}
 	term := drain(t, in, QueryDeps{CallModel: call})
 
 	if term.Reason != ReasonMaxTurns {
-		t.Fatalf("reason=%v, want ReasonMaxTurns（收尾后仍报原预算 reason）", term.Reason)
+		t.Fatalf("reason=%v, want ReasonMaxTurns (after settlement still reports the original budget reason)", term.Reason)
 	}
 	found := false
 	for _, m := range term.Messages {
@@ -58,16 +58,16 @@ func TestSettlementOnBudgetHit(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("收尾提示未被注入到对话")
+		t.Fatalf("settlement prompt was not injected into the conversation")
 	}
 	if len(toolsSeen) < 2 {
-		t.Fatalf("应至少 2 次模型调用(主+收尾)，得 %d", len(toolsSeen))
+		t.Fatalf("expected at least 2 model calls (main+settlement), got %d", len(toolsSeen))
 	}
 	if !contains(toolsSeen[0], "Bash") {
-		t.Fatalf("主阶段应能看到 Bash: %v", toolsSeen[0])
+		t.Fatalf("main phase should see Bash: %v", toolsSeen[0])
 	}
 	if contains(toolsSeen[1], "Bash") {
-		t.Fatalf("收尾阶段应屏蔽 Bash: %v", toolsSeen[1])
+		t.Fatalf("settlement phase should hide Bash: %v", toolsSeen[1])
 	}
 }
 
@@ -88,7 +88,7 @@ func TestNoSettlementFinishesImmediately(t *testing.T) {
 		t.Fatalf("reason=%v", term.Reason)
 	}
 	if m.calls != 1 {
-		t.Fatalf("无收尾应只调用 1 次模型，得 %d", m.calls)
+		t.Fatalf("without settlement the model should be called only once, got %d", m.calls)
 	}
 }
 

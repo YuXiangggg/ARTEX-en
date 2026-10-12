@@ -90,8 +90,8 @@ type taskLLMSelection struct {
 	profileID int64
 	revision  int64
 	provider  llm.Provider
-	// retry 是这次选中的配置解析出来的重试参数(profile 覆盖 → 全局策略 → 内置默认)。
-	// 同 provider 安全窗口重试按它走,所以换了 profile 就换一套重试节奏。
+	// retry holds the retry params resolved from the config chosen this time (profile override → global policy → built-in default).
+	// Same-provider safety-window retries follow it, so switching profile switches the whole retry rhythm.
 	retry agent.RetryConfig
 }
 
@@ -102,11 +102,11 @@ type taskLLMStreamHooks struct {
 }
 
 // current resolves the provider this role runs on, by precedence:
-// Agent 绑定 → 任务 LLM 配置链 → 全局/环境配置。
-// 绑定优先于任务链：某个角色被显式指定了模型，就一直跑在那个模型上；绑定不存在或
-// 构建失败时才降级到任务链，任务链为空时再降级到全局配置。
-// 返回的 profile id 只有走任务链时才非零 —— streamTaskLLM 以此判断额度错误是否
-// 应该推进任务的故障转移状态（绑定/全局路径不改任务链状态，沿用既有语义）。
+// Agent binding → task LLM config chain → global/env config.
+// A binding takes precedence over the task chain: once a role is explicitly assigned a model, it always runs on that model; only when the binding is missing or
+// fails to build does it fall back to the task chain, and when the task chain is empty it falls back to the global config.
+// The returned profile id is non-zero only when the task chain is used — streamTaskLLM uses this to decide whether a quota error
+// should advance the task's failover state (binding/global paths do not change the task-chain state, keeping existing semantics).
 func (r *taskLLMRuntime) current() (taskLLMSelection, error) {
 	taskNum, err := parseTaskID(r.taskID)
 	if err != nil {
@@ -184,7 +184,7 @@ func (r *taskLLMRuntime) nonStreaming() bool {
 // maxTokens returns the currently-active source's per-reply output cap.
 // Unresolvable → 0, i.e. send no cap, matching the pre-setting behaviour.
 func (r *taskLLMRuntime) maxTokens() int {
-	cfg, _ := r.activeCfg() // 未解析出配置时是零值 0
+	cfg, _ := r.activeCfg() // zero value 0 when no config is resolved
 	return cfg.MaxTokens
 }
 
@@ -246,18 +246,18 @@ func completeTaskLLM(ctx context.Context, taskID string, req llm.CompletionReque
 			usage   llm.Usage
 			callErr error
 		)
-		// 同 provider 安全窗口重试:非流式调用要么整体成功、要么整体失败,没有
-		// 中途已交付输出的问题,所以任何瞬时失败都可原样重试。
+		// Same-provider safety-window retry: a non-streaming call either succeeds or fails as a whole, with no
+		// partially-delivered output, so any transient failure can be retried as-is.
 		retries, backoffOf := sameProviderRetryPolicy(selection.retry)
 		for attempt := 0; ; attempt++ {
 			msg, sr, usage, callErr = selection.provider.Complete(ctx, req)
 			if callErr != nil && ctx.Err() == nil &&
 				attempt < retries && isRetryableStreamError(callErr) {
 				backoff := backoffOf(attempt)
-				log.Printf("[task-llm] task %s 非流式调用失败,%v 后同 provider 重试 (%d/%d): %v",
+				log.Printf("[task-llm] task %s non-streaming call failed, same-provider retry after %v (%d/%d): %v",
 					taskID, backoff, attempt+1, retries, callErr)
 				if sleepCtx(ctx, backoff) {
-					break // 退避期间 ctx 取消 → 停止重试
+					break // ctx cancelled during backoff → stop retrying
 				}
 				continue
 			}
@@ -266,7 +266,7 @@ func completeTaskLLM(ctx context.Context, taskID string, req llm.CompletionReque
 		if callErr == nil {
 			return msg, sr, usage, nil
 		}
-		// profileID=0: 显式链已被清空;非额度错误:透传。二者都不改任务 failover 状态。
+		// profileID=0: the explicit chain was cleared; non-quota error: pass through. Neither changes the task failover state.
 		if selection.profileID == 0 || !isQuotaExhaustedError(callErr) {
 			return llm.Message{}, "", llm.Usage{}, callErr
 		}
@@ -280,7 +280,7 @@ func completeTaskLLM(ctx context.Context, taskID string, req llm.CompletionReque
 		if !transition.Stale && transition.NextProfileID == nil {
 			return llm.Message{}, "", llm.Usage{}, &taskLLMError{taskID: taskID, chainExhausted: transition.ChainExhausted, cause: callErr}
 		}
-		// 没有任何输出交付给调用方,换下一个 profile 重放同一逻辑请求是安全的。
+		// No output was delivered to the caller, so replaying the same logical request on the next profile is safe.
 	}
 }
 
@@ -296,9 +296,9 @@ func streamTaskLLM(ctx context.Context, taskID string, req llm.CompletionRequest
 			var pending []llm.StreamEvent
 			var streamErr error
 			retries, backoffOf := sameProviderRetryPolicy(selection.retry)
-			// 同 provider 安全窗口重试:committed 之前(还没向调用方交付任何输出)
-			// 的瞬时失败可以原样重放,不会重复模型输出或工具执行。committed 之后、
-			// ctx 取消、或确定性/额度错误则跳出,交给下方原有的透传/故障转移逻辑。
+			// Same-provider safety-window retry: a transient failure before committed (before any output is delivered to the caller)
+			// can be replayed as-is without duplicating model output or tool execution. After committed,
+			// ctx cancellation, or a deterministic/quota error, break out and hand off to the existing pass-through/failover logic below.
 			for attempt := 0; ; attempt++ {
 				committed = false
 				pending = nil
@@ -328,10 +328,10 @@ func streamTaskLLM(ctx context.Context, taskID string, req llm.CompletionRequest
 				if streamErr != nil && !committed && ctx.Err() == nil &&
 					attempt < retries && isRetryableStreamError(streamErr) {
 					backoff := backoffOf(attempt)
-					log.Printf("[task-llm] task %s 提交前流失败,%v 后同 provider 重试 (%d/%d): %v",
+					log.Printf("[task-llm] task %s stream failed before commit, same-provider retry after %v (%d/%d): %v",
 						taskID, backoff, attempt+1, retries, streamErr)
 					if sleepCtx(ctx, backoff) {
-						break // 退避期间 ctx 取消 → 停止重试
+						break // ctx cancelled during backoff → stop retrying
 					}
 					continue
 				}
@@ -394,23 +394,23 @@ func streamEventCommitsOutput(event llm.StreamEvent) bool {
 	}
 }
 
-// 提交前安全窗口内、对同一 provider 的【默认】重试次数。SDK 的 doStream 只重试建连
-// 阶段(拿到 200 之前);流一旦开始,中途断流 / overloaded / 流内 429 等瞬时故障会直接
-// 冒泡成 model_error,零重试。只要一个 token 都还没交给调用方(!committed),重放
-// 完全相同的请求就不会重复模型输出或工具副作用,因此这里补一层同 provider 退避重试,
-// 把这类抖动挡在意图整体重跑之前。可被 LLM 配置的重试覆盖/全局重试策略改写。
+// The [default] number of retries against the same provider within the pre-commit safety window. The SDK's doStream only retries the connect
+// phase (before a 200 is received); once the stream starts, a mid-stream drop / overloaded / in-stream 429 and other transient failures bubble
+// straight up as model_error with zero retries. As long as not a single token has been handed to the caller (!committed), replaying
+// the exact same request will not duplicate model output or tool side effects, so we add a same-provider backoff-retry layer here to
+// block this kind of jitter before a whole-intent rerun. Can be overridden by the LLM config's retries / rewritten by the global retry policy.
 const sameProviderStreamRetries = 2
 
-// sameProviderRetryBackoff 是第 attempt 次重试前的【默认】退避(0.5s、1s…,上限 4s),
-// 与 SDK 的指数梯度同风格但封顶更小,避免拖住 worker 的收尾/取消响应。
-// 以变量形式暴露,便于测试将退避置零。
+// sameProviderRetryBackoff is the [default] backoff before retry attempt N (0.5s, 1s…, capped at 4s),
+// the same style as the SDK's exponential ramp but with a smaller cap, to avoid stalling the worker's wrap-up/cancel response.
+// Exposed as a variable so tests can set the backoff to zero.
 var sameProviderRetryBackoff = func(attempt int) time.Duration {
 	return min(500*time.Millisecond*(1<<attempt), 4*time.Second)
 }
 
-// sameProviderRetryPolicy 解析这次调用用哪套同 provider 重试参数:配置里设了次数就
-// 用配置的(负数 = 关掉这层重试),设了间隔就把指数退避换成固定间隔,两者都没设时
-// 与改可配之前逐字节一致。
+// sameProviderRetryPolicy resolves which same-provider retry params this call uses: if the config sets a count,
+// use the configured one (negative = disable this retry layer); if it sets an interval, replace the exponential backoff with a fixed interval; when neither is set
+// it is byte-for-byte identical to before this became configurable.
 func sameProviderRetryPolicy(r agent.RetryConfig) (retries int, backoff func(int) time.Duration) {
 	retries, backoff = sameProviderStreamRetries, sameProviderRetryBackoff
 	if r.StreamAttempts != 0 {
@@ -423,11 +423,11 @@ func sameProviderRetryPolicy(r agent.RetryConfig) (retries int, backoff func(int
 	return retries, backoff
 }
 
-// isRetryableStreamError 判断「提交前的流失败」是否值得在同一 provider 上重放。
-// 瞬时的传输中断 / 供应商过载 / 限流会自行恢复,可安全重试;而以下三类不重试:
-//   - 额度耗尽:交给 profile 故障转移处理,别在这里白烧重试
-//   - 上下文过长:相同请求重放也没用,交给 harness 的 reactive 压缩兜底
-//   - 4xx 确定性拒绝(400/401/403/404/422):到哪个 provider 都一样会失败
+// isRetryableStreamError decides whether a "pre-commit stream failure" is worth replaying on the same provider.
+// Transient transport interruptions / provider overload / rate limiting recover on their own and are safe to retry; the following three are not retried:
+//   - quota exhausted: hand off to profile failover, do not burn retries here for nothing
+//   - context too long: replaying the same request is pointless, hand off to the harness's reactive compaction fallback
+//   - 4xx deterministic rejection (400/401/403/404/422): will fail the same way on any provider
 func isRetryableStreamError(err error) bool {
 	if err == nil {
 		return false
@@ -446,8 +446,8 @@ func isRetryableStreamError(err error) bool {
 			return false
 		}
 	}
-	// 其余(传输 reset/EOF/timeout、408/429/5xx、流内 error 事件如 anthropic
-	// overloaded_error 等)一律视为瞬时,允许重试。
+	// Everything else (transport reset/EOF/timeout, 408/429/5xx, in-stream error events such as anthropic
+	// overloaded_error, etc.) is treated as transient and allowed to retry.
 	return true
 }
 
@@ -564,37 +564,37 @@ func (s *Server) agentsForTask(t *Task) *taskAgentBundle {
 	wk := agent.NewWorker(workerRuntime, "task-router", s.m.dir, tx, window, s.agentMaxTurns("worker"))
 	wk.SetFindingRecorder(s.evidenceStore())
 	wk.SetCompactionWindowResolver(workerRuntime.CompactionWindow)
-	wk.SetNonStreaming(workerRuntime.nonStreaming) // 按任务当前激活 profile 的流式开关(每轮读)
-	wk.SetMaxTokens(workerRuntime.maxTokens)       // 同上,输出上限也跟随当前激活 profile
-	wk.SetNoaEnabled(s.m.NoaCompactionEnabled)     // 实验功能:noa 上下文压缩(平台级开关,每 run 读)
+	wk.SetNonStreaming(workerRuntime.nonStreaming) // streaming toggle of the task's currently active profile (read each round)
+	wk.SetMaxTokens(workerRuntime.maxTokens)       // same as above; the output cap also follows the currently active profile
+	wk.SetNoaEnabled(s.m.NoaCompactionEnabled)     // experimental: noa context compaction (platform-level toggle, read per run)
 	wk.SetRunTimeout(time.Duration(s.agentRunSeconds("worker")) * time.Second)
 	wk.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
 	wk.SetWebSearch(s.webSearchFor("worker"))
-	wk.SetConstraintInject(s.constraintInjectWorker) // 操作约束注入 worker(可配置,默认开)
+	wk.SetConstraintInject(s.constraintInjectWorker) // inject operation constraints into the worker (configurable, on by default)
 	pl := agent.NewPlanner(plannerRuntime, "task-router", s.m.dir, tx, plannerRuntime.CompactionWindow(), s.agentMaxTurns("planner"))
 	pl.SetFindingRecorder(s.evidenceStore())
 	pl.SetCompactionWindowResolver(plannerRuntime.CompactionWindow)
 	pl.SetNonStreaming(plannerRuntime.nonStreaming)
 	pl.SetMaxTokens(plannerRuntime.maxTokens)
-	pl.SetNoaEnabled(s.m.NoaCompactionEnabled) // 实验功能:noa 上下文压缩(平台级开关,每 run 读)
+	pl.SetNoaEnabled(s.m.NoaCompactionEnabled) // experimental: noa context compaction (platform-level toggle, read per run)
 	pl.SetKillWork(s.engine.KillWork)
 	pl.SetSteerWork(s.engine.SteerWork)
 	pl.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
 	pl.SetWebSearch(s.webSearchFor("planner"))
-	pl.SetConstraintInject(s.constraintInjectPlanner) // 操作约束注入 planner(可配置,默认开)
-	// cold-digest §7: 冷节点后台压缩。引擎经权威解析器实际驱动的就是这套 per-task planner
-	// (agentsForTask),Compactor 必须接在这里。走任务路由的 planner provider(§4:与 agent
-	// 同模型,随任务 LLM 链解析),压缩用 Complete 一次性生成 body。
+	pl.SetConstraintInject(s.constraintInjectPlanner) // inject operation constraints into the planner (configurable, on by default)
+	// cold-digest §7: background compaction of cold nodes. What the engine actually drives through the authoritative resolver is this per-task planner
+	// (agentsForTask), so the Compactor must attach here. It uses the task-routed planner provider (§4: same model as the agent,
+	// resolved along the task LLM chain), and compaction uses a single Complete to generate the body.
 	pl.SetCompactor(agent.NewCompactor(plannerRuntime, "task-router"))
 	main := agent.NewMainAgent(mainRuntime, "task-router", s.m.dir, tx, mainRuntime.CompactionWindow(), s.agentMaxTurns("mainagent"))
 	main.SetFindingRecorder(s.evidenceStore())
 	main.SetCompactionWindowResolver(mainRuntime.CompactionWindow)
 	main.SetNonStreaming(mainRuntime.nonStreaming)
 	main.SetMaxTokens(mainRuntime.maxTokens)
-	main.SetNoaEnabled(s.m.NoaCompactionEnabled) // 实验功能:noa 上下文压缩(平台级开关,每 run 读)
+	main.SetNoaEnabled(s.m.NoaCompactionEnabled) // experimental: noa context compaction (platform-level toggle, read per run)
 	main.SetProxy(s.m.ProxyAddr(), s.m.ProxyCACert())
 	main.SetWebSearch(s.webSearchFor("mainagent"))
-	main.SetSteerWork(s.engine.SteerWork) // steer_work：人对运行中 work 实时纠偏
+	main.SetSteerWork(s.engine.SteerWork) // steer_work: a human steering running work in real time
 	bundle := &taskAgentBundle{
 		runtime: goalRuntime, plannerRuntime: plannerRuntime, workerRuntime: workerRuntime,
 		mainRuntime: mainRuntime, pl: pl, wk: wk, main: main,
@@ -626,13 +626,13 @@ func (s *Server) emitTaskLLMTransition(t *Task, transition db.TaskLLMTransition,
 	}
 	mode := "automatic"
 	kind := "llm_switch"
-	summary := fmt.Sprintf("%s 额度不足", llmAuditProfileLabel(previous))
+	summary := fmt.Sprintf("%s is out of quota", llmAuditProfileLabel(previous))
 	if transition.NextProfileID != nil {
-		summary += fmt.Sprintf("，后续调用切换到 %s", llmAuditProfileLabel(next))
+		summary += fmt.Sprintf(", subsequent calls switch to %s", llmAuditProfileLabel(next))
 	} else {
 		mode = "exhausted"
 		kind = "llm_failover"
-		summary += "，配置链已耗尽"
+		summary += ", the config chain is exhausted"
 	}
 	metadata, _ := json.Marshal(llmActivityMetadata{LLMTransition: llmTransitionAudit{
 		Mode: mode, Reason: cause.Error(), Previous: previous, Next: next,
@@ -647,18 +647,18 @@ func (s *Server) llmAuditProfile(id int64) *llmAuditProfile {
 	}
 	p, err := s.m.pg.ProfileByID(id)
 	if err != nil || p == nil {
-		return &llmAuditProfile{ID: id, Name: fmt.Sprintf("配置 #%d", id)}
+		return &llmAuditProfile{ID: id, Name: fmt.Sprintf("config #%d", id)}
 	}
 	return &llmAuditProfile{ID: p.ID, Name: p.Name, Format: p.Format, Model: p.Model}
 }
 
 func llmAuditProfileLabel(profile *llmAuditProfile) string {
 	if profile == nil {
-		return "默认配置"
+		return "default config"
 	}
 	name := profile.Name
 	if name == "" {
-		name = fmt.Sprintf("配置 #%d", profile.ID)
+		name = fmt.Sprintf("config #%d", profile.ID)
 	}
 	detail := []string{}
 	if profile.Format != "" {
@@ -670,7 +670,7 @@ func llmAuditProfileLabel(profile *llmAuditProfile) string {
 	if len(detail) == 0 {
 		return name
 	}
-	return fmt.Sprintf("%s（%s）", name, strings.Join(detail, " / "))
+	return fmt.Sprintf("%s (%s)", name, strings.Join(detail, " / "))
 }
 
 func sameOptionalID(a, b *int64) bool {
@@ -689,9 +689,9 @@ func (s *Server) emitManualTaskLLMSwitch(t *Task, previousID, nextID *int64) db.
 	if nextID != nil {
 		next = s.llmAuditProfile(*nextID)
 	}
-	summary := fmt.Sprintf("用户手动将任务 LLM 从 %s 切换到 %s", llmAuditProfileLabel(previous), llmAuditProfileLabel(next))
+	summary := fmt.Sprintf("the user manually switched the task LLM from %s to %s", llmAuditProfileLabel(previous), llmAuditProfileLabel(next))
 	metadata, _ := json.Marshal(llmActivityMetadata{LLMTransition: llmTransitionAudit{
-		Mode: "manual", Reason: "用户手动切换任务 LLM", Previous: previous, Next: next,
+		Mode: "manual", Reason: "user manually switched the task LLM", Previous: previous, Next: next,
 	}})
 	return s.engine.emitActivity(t, db.Activity{Worker: "system", Kind: "llm_switch", Summary: summary, Detail: summary, Metadata: metadata})
 }

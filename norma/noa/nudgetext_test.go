@@ -23,7 +23,7 @@ func sampleDecision(tier Tier, emergency bool) NudgeDecision {
 	}
 	if tier >= 2 {
 		d.TierTargetBlocks = []CompressionBlock{
-			{BlockID: "b3", Tier: 1, Summary: strings.Repeat("s", 1200), Topic: "JWT 认证方案",
+			{BlockID: "b3", Tier: 1, Summary: strings.Repeat("s", 1200), Topic: "JWT authentication scheme",
 				EffectiveMessageIDs: make([]string, 34), CompressedTokens: 12400},
 			{BlockID: "b7", Tier: 1, Summary: strings.Repeat("s", 900),
 				EffectiveMessageIDs: make([]string, 28), CompressedTokens: 9100},

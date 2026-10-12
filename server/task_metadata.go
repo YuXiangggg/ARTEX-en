@@ -31,24 +31,24 @@ func (s *Server) updateTaskMetadata(w http.ResponseWriter, r *http.Request) {
 	if err := decode(r, &request); err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")
+			writeErr(w, http.StatusRequestEntityTooLarge, "request body too large")
 		} else {
 			writeErr(w, http.StatusBadRequest, err.Error())
 		}
 		return
 	}
 	if request.Name == nil && request.Pinned == nil {
-		writeErr(w, http.StatusBadRequest, "至少需要提供 name 或 pinned")
+		writeErr(w, http.StatusBadRequest, "at least one of name or pinned is required")
 		return
 	}
 	if request.Name != nil {
 		name := strings.TrimSpace(*request.Name)
 		if name == "" {
-			writeErr(w, http.StatusBadRequest, "任务名称不能为空")
+			writeErr(w, http.StatusBadRequest, "task name must not be empty")
 			return
 		}
 		if utf8.RuneCountInString(name) > maxTaskNameRunes {
-			writeErr(w, http.StatusBadRequest, fmt.Sprintf("任务名称最多 %d 个字符", maxTaskNameRunes))
+			writeErr(w, http.StatusBadRequest, fmt.Sprintf("task name can be at most %d characters", maxTaskNameRunes))
 			return
 		}
 		request.Name = &name

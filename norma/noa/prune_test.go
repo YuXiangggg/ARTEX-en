@@ -330,7 +330,7 @@ func TestIsRenderedSummaryMessage(t *testing.T) {
 
 func TestRenderSummaryMessage(t *testing.T) {
 	b := CompressionBlock{
-		BlockID: "b5", Tier: 2, Topic: "认证子系统", Summary: "  decided on JWT  ",
+		BlockID: "b5", Tier: 2, Topic: "authentication subsystem", Summary: "  decided on JWT  ",
 		StartRef: "m00012", EndRef: "m00160", ArchivePath: "/data/noa/s/tier2/b5.md",
 	}
 	m := RenderSummaryMessage(b)
@@ -338,7 +338,7 @@ func TestRenderSummaryMessage(t *testing.T) {
 		t.Fatalf("rendered summary identity = %+v", m)
 	}
 	lines := strings.Split(m.Text, "\n")
-	if lines[0] != SummaryHeader+" — 认证子系统" {
+	if lines[0] != SummaryHeader+" — authentication subsystem" {
 		t.Fatalf("header line = %q", lines[0])
 	}
 	if lines[1] != "decided on JWT" {

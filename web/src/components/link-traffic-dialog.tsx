@@ -66,7 +66,7 @@ export function LinkTrafficDialog({
         selected.finding_id,
         trafficIds.map((traffic_id) => ({ traffic_id })),
       );
-      toast.success(`已关联 ${trafficIds.length} 条流量到漏洞 #${selected.finding_id}`);
+      toast.success(`Linked ${trafficIds.length} traffic record(s) to finding #${selected.finding_id}`);
       onBound();
       onClose();
     } catch (e) {
@@ -84,15 +84,15 @@ export function LinkTrafficDialog({
     >
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>关联到漏洞</DialogTitle>
-          <DialogDescription>将所选 {trafficIds.length} 条流量保存为已有漏洞的证据。</DialogDescription>
+          <DialogTitle>Link to Finding</DialogTitle>
+          <DialogDescription>Save the selected {trafficIds.length} traffic record(s) as evidence for an existing finding.</DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
-            <FieldLabel htmlFor="link-finding-query">查找漏洞</FieldLabel>
+            <FieldLabel htmlFor="link-finding-query">Find finding</FieldLabel>
             <Input
               id="link-finding-query"
-              placeholder="名称 / 摘要 / 漏洞类别"
+              placeholder="Name / summary / vulnerability class"
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
@@ -126,16 +126,16 @@ export function LinkTrafficDialog({
           ))}
           {!data?.items.length ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
-              {loading ? "加载中…" : "没有匹配的漏洞，请先登记漏洞"}
+              {loading ? "Loading…" : "No matching findings; please register a finding first"}
             </p>
           ) : null}
         </div>
         <div className="flex items-center justify-between gap-2">
           <Button variant="outline" size="sm" disabled={loading || page <= 1} onClick={() => setPage((p) => p - 1)}>
-            上一页
+            Previous
           </Button>
           <span className="text-xs">
-            第 {page} 页 · 共 {data?.total ?? 0} 条
+            Page {page} · {data?.total ?? 0} total
           </span>
           <Button
             variant="outline"
@@ -143,18 +143,18 @@ export function LinkTrafficDialog({
             disabled={loading || page * 20 >= (data?.total ?? 0)}
             onClick={() => setPage((p) => p + 1)}
           >
-            下一页
+            Next
           </Button>
         </div>
         <p className="text-sm">
-          {selected ? `已选漏洞：#${selected.finding_id} ${selected.name || selected.vulnclass}` : "请选择一个漏洞"}
+          {selected ? `Selected finding: #${selected.finding_id} ${selected.name || selected.vulnclass}` : "Please select a finding"}
         </p>
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={onClose}>
-            取消
+            Cancel
           </Button>
           <Button disabled={busy || !selected} onClick={() => void save()}>
-            {busy ? "保存中…" : "确认关联"}
+            {busy ? "Saving…" : "Confirm link"}
           </Button>
         </DialogFooter>
       </DialogContent>

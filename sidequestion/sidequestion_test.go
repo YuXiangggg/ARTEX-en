@@ -177,7 +177,7 @@ func TestServiceNoToolsAndUsageOnFailure(t *testing.T) {
 			before := fixture()
 			req, _ := CloneRequest(before)
 			out, err := (SideQuestionService{p}).Answer(t.Context(), req, streaming, nil)
-			if err != nil || calls != 1 || !out.ToolUse || !strings.Contains(out.Text, "不能执行工具") || out.Usage.InputTokens != 11 {
+			if err != nil || calls != 1 || !out.ToolUse || !strings.Contains(out.Text, "cannot run tool") || out.Usage.InputTokens != 11 {
 				t.Fatalf("answer %+v calls=%d err=%v", out, calls, err)
 			}
 			if !reflect.DeepEqual(before, req) {

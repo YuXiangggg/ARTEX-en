@@ -13,6 +13,6 @@ import "net/http"
 //	go build -tags embedui ./cmd/artex
 func (s *Server) webuiHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		http.Error(w, "前端未内嵌到此二进制（开发用 next dev；发布用 -tags embedui 构建）", http.StatusNotFound)
+		http.Error(w, "frontend is not embedded in this binary (use next dev for development; build with -tags embedui for release)", http.StatusNotFound)
 	})
 }

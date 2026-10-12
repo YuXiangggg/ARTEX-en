@@ -9,9 +9,9 @@ import { Button } from "@/components/ui/button";
 import { cn, copyText } from "@/lib/utils";
 
 type CopyButtonProps = {
-  // 要复制的文本;为空则按钮禁用。
+  // Text to copy; the button is disabled when empty.
   text: string | null | undefined;
-  // 复制成功后的 toast 文案,默认「已复制」。
+  // Toast text after a successful copy; defaults to "Copied".
   successMessage?: string;
   label?: React.ReactNode;
   size?: React.ComponentProps<typeof Button>["size"];
@@ -19,12 +19,12 @@ type CopyButtonProps = {
   className?: string;
 };
 
-// CopyButton 统一的「复制到剪贴板」按钮:内置成功/失败反馈,并在 HTTP 非安全上下文
-// 下自动降级(见 copyText)。
+// CopyButton is the shared "copy to clipboard" button: built-in success/failure feedback, with automatic
+// fallback in non-secure HTTP contexts (see copyText).
 export function CopyButton({
   text,
-  successMessage = "已复制",
-  label = "复制",
+  successMessage = "Copied",
+  label = "Copy",
   size = "sm",
   variant = "outline",
   className,
@@ -47,7 +47,7 @@ export function CopyButton({
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => setCopied(false), 1500);
     } else {
-      toast.error("复制失败，请手动选择文本复制");
+      toast.error("Copy failed; please select the text and copy manually");
     }
   }
 

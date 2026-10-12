@@ -12,10 +12,10 @@ export function StatTile({ label, value, hint, tone }: { label: string; value: s
   );
 }
 
-// formatBacklog 把积压毫秒数渲染成人看得懂的量级。
+// formatBacklog renders a backlog in milliseconds as a human-readable magnitude.
 export function formatBacklog(ms: number): string {
   if (!ms) return "—";
-  if (ms < 60_000) return `${Math.round(ms / 1000)} 秒`;
-  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} 分钟`;
-  return `${(ms / 3_600_000).toFixed(1)} 小时`;
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)} min`;
+  return `${(ms / 3_600_000).toFixed(1)} h`;
 }

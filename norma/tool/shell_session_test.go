@@ -10,7 +10,7 @@ import (
 
 // TestShellToolsJSONSessionID drives the tools via their JSON input (snake_case
 // session_id) to guard against missing json tags — without tags session_id never
-// binds and every read/send/close reports "会话不存在".
+// binds and every read/send/close reports "session does not exist".
 func TestShellToolsJSONSessionID(t *testing.T) {
 	if !ptySupported() {
 		t.Skip("no PTY on this platform")

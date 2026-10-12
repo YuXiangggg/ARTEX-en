@@ -5,16 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// 抽屉/对话框(Sheet/Dialog)的 onInteractOutside 关闭判定辅助。
+// Helper for the onInteractOutside close decision of drawers/dialogs (Sheet/Dialog).
 //
-// 背景:抽屉内的 Radix 弹层(Select 下拉、DropdownMenu、Popover 等)会 portal 到抽屉
-// 之外。开着弹层时点遮罩/抽屉外想收起它,这一次 pointerdown 会被 Select 和 Sheet 两个
-// DismissableLayer 同时处理;Select 先关闭且是 discrete 事件、React 会同步 flush,于是
-// 轮到 Sheet 的处理器时弹层的 data-state 早已翻成 closed —— 在"当下"检测弹层是否打开
-// 天然不可靠(实测已验证)。
+// Background: a Radix popup layer inside the drawer (Select dropdown, DropdownMenu, Popover, etc.) portals outside
+// the drawer. When a popup is open and you click the overlay/outside the drawer to dismiss it, this single pointerdown
+// is handled by both the Select and Sheet DismissableLayers; Select closes first and, being a discrete event, React
+// flushes synchronously, so by the time Sheet's handler runs the popup's data-state has already flipped to closed --
+// detecting whether a popup is open "in the moment" is inherently unreliable (verified in practice).
 //
-// 正确做法:Radix 的 pointerdown 监听在冒泡阶段;我们在 capture 阶段(早于它)先把
-// "此刻有没有弹层开着"记录下来,onInteractOutside 再读这个记录值来决定是否放行关闭。
+// Correct approach: Radix's pointerdown listener runs in the bubble phase; in the capture phase (earlier than it) we
+// first record "whether a popup is open right now", and onInteractOutside reads that recorded value to decide whether
+// to allow the close.
 function isRadixOverlayOpenNow(): boolean {
   if (typeof document === "undefined") return false;
   return !!document.querySelector(
@@ -35,26 +36,26 @@ if (typeof document !== "undefined") {
     () => {
       overlayOpenAtLastPointerDown = isRadixOverlayOpenNow();
     },
-    true, // capture:抢在 Radix 冒泡阶段的 pointerdown 处理器之前记录
+    true, // capture: record before Radix's bubble-phase pointerdown handler runs
   );
 }
 
-// radixOverlayWasOpenAtPointerDown 返回"最近一次 pointerdown 发生时是否有 Radix 弹层
-// 开着"。抽屉/对话框据此:开着弹层时点遮罩 → 只收弹层、不关自身。
+// radixOverlayWasOpenAtPointerDown returns "whether a Radix popup was open at the time of the most recent
+// pointerdown". Drawers/dialogs use this: clicking the overlay while a popup is open -> only dismiss the popup, not itself.
 export function radixOverlayWasOpenAtPointerDown(): boolean {
   return overlayOpenAtLastPointerDown;
 }
 
-// copyText 把文本写入剪贴板,返回是否成功。
-// 背景:navigator.clipboard 仅在安全上下文(HTTPS / localhost)可用;通过 IP + HTTP
-// 访问时它为 undefined,此时降级到 execCommand("copy")。
+// copyText writes text to the clipboard and returns whether it succeeded.
+// Background: navigator.clipboard is only available in secure contexts (HTTPS / localhost); when accessed over IP + HTTP
+// it is undefined, in which case we fall back to execCommand("copy").
 export async function copyText(text: string): Promise<boolean> {
   if (navigator.clipboard && window.isSecureContext) {
     try {
       await navigator.clipboard.writeText(text);
       return true;
     } catch {
-      // 继续走降级方案
+      // Fall through to the fallback
     }
   }
   try {

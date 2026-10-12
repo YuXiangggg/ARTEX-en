@@ -47,7 +47,7 @@ func TestApplyCompressionCreatesBlockAndArchive(t *testing.T) {
 	msgs, st := fixture(t, 6, 2000)
 	arch := newMemArchiver()
 	res := applyOne(t, msgs, st, arch, CompressRange{
-		StartRef: "m00002", EndRef: "m00005", Summary: longSummary, Topic: "JWT 认证方案",
+		StartRef: "m00002", EndRef: "m00005", Summary: longSummary, Topic: "JWT authentication scheme",
 	})
 	if len(res.Errors) != 0 {
 		t.Fatalf("errors = %v", res.Errors)
@@ -69,7 +69,7 @@ func TestApplyCompressionCreatesBlockAndArchive(t *testing.T) {
 	if !strings.Contains(body, "block: "+b.BlockID) || !strings.Contains(body, "tier: 1") {
 		t.Fatalf("archive front matter missing:\n%s", body[:min(400, len(body))])
 	}
-	if !strings.Contains(body, "topic: JWT 认证方案") {
+	if !strings.Contains(body, "topic: JWT authentication scheme") {
 		t.Fatal("archive front matter lost the topic")
 	}
 	if res.State.Stats.CompressionCount != 1 {

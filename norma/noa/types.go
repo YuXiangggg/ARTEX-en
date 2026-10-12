@@ -11,7 +11,7 @@
 // dependency, the summarizer, is reduced to a string input.
 //
 // Ported from acp-kernel (MIT, Copyright © 2026 ranxianglei). See
-// docs/noa-实施方案.md for the full specification, including every deliberate
+// docs/noa-implementation-plan.md for the full specification, including every deliberate
 // deviation from upstream.
 package noa
 

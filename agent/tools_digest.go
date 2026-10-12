@@ -82,8 +82,8 @@ func coldDigestsRecent(store *db.ExplorationStore, cap int) (shown []map[string]
 
 // hiddenMembersFor returns a predicate telling whether a member is hidden (folded
 // into an active digest AND still cold) in the given store — so a source task's
-// overview folds exactly the way that task folds itself (§2 cross-task: "当前任务
-// 什么展示逻辑，关联任务就什么逻辑"). A revived (now hot) covered member is NOT
+// overview folds exactly the way that task folds itself (§2 cross-task: "whatever display
+// logic the current task uses, the associated task uses the same"). A revived (now hot) covered member is NOT
 // hidden (§6 render-time revival check). Returns a never-hidden predicate when the
 // store has no digests.
 func hiddenMembersFor(store *db.ExplorationStore) func(int64) bool {
@@ -119,11 +119,11 @@ func (t *ToolSet) resolveDigest(id int64) (*db.Node, *db.ExplorationStore, int64
 // node's full detail.
 func (t *ToolSet) expandDigest() actool.CoreTool {
 	return t.writeExpTool("expand_digest",
-		"展开一个 cold digest：返回它折叠的成员紧凑列表（id/summary/state/confidence），与概览 recent_facts/recent_done_intents 同形状。要某条完整细节/证据用 node_detail(member_id)。",
+		"Expand a cold digest: returns a compact list of the members it folds (id/summary/state/confidence), the same shape as the overview recent_facts/recent_done_intents. For a given entry's full detail/evidence use node_detail(member_id).",
 		map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"id": map[string]any{"type": "integer", "description": "digest 节点 id（来自概览 cold_digests）"},
+				"id": map[string]any{"type": "integer", "description": "digest node id (from the overview cold_digests)"},
 			},
 			"required": []any{"id"},
 		},
@@ -134,7 +134,7 @@ func (t *ToolSet) expandDigest() actool.CoreTool {
 			_ = json.Unmarshal(raw, &in)
 			n, store, srcTaskID := t.resolveDigest(in.ID)
 			if n == nil {
-				return jsonResult(map[string]any{"error": fmt.Sprintf("#%d 不是 digest 节点（本任务或直接关联任务里都没找到）", in.ID)})
+				return jsonResult(map[string]any{"error": fmt.Sprintf("#%d is not a digest node (not found in this task or any directly associated task)", in.ID)})
 			}
 			var p struct {
 				Body string `json:"body"`
@@ -144,7 +144,7 @@ func (t *ToolSet) expandDigest() actool.CoreTool {
 			list := make([]map[string]any, 0, len(members))
 			for _, m := range members {
 				entry := t.digestMemberEntry(store, m)
-				if srcTaskID > 0 { // 关联任务的成员：只读，带继承标记（§2）
+				if srcTaskID > 0 { // Members of an associated task: read-only, with an inheritance marker (§2)
 					entry["inherited"] = true
 					entry["source_task_id"] = srcTaskID
 				}

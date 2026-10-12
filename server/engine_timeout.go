@@ -12,18 +12,18 @@ import (
 	"github.com/Autumn-27/artex/db"
 )
 
-// 任务级超时协调器(见 docs/任务级超时与收尾设计.md §4/§8.5)。
-// 绝对墙钟:每个带 timeout 的任务一个定时 goroutine,到点驱动有序收尾时序:
-//   ① settling → ② worker 停领新意图 / ③ planner 丢弃普通 notify
-//   ④ 等在跑 worker drain(受 grace) → ⑤ 终局一轮 planner 判定 → ⑥ 定终态(带守卫)
+// Task-level timeout coordinator (see the task-level timeout and wrap-up design doc, §4/§8.5).
+// Absolute wall clock: one timer goroutine per task with a timeout; when due it drives the ordered wrap-up sequence:
+//   (1) settling -> (2) workers stop claiming new intents / (3) planner drops ordinary notify
+//   (4) wait for running workers to drain (bounded by grace) -> (5) one final planner verdict round -> (6) set terminal status (guarded)
 
 const (
-	settleDrainGrace     = 90 * time.Second // 等在跑 worker 优雅收尾的上限;超过则硬 cancel
-	deadlinePollInterval = 2 * time.Second  // deadline 未盖章/LLM 未就绪时的轮询间隔
-	deadlineMaxSleep     = 30 * time.Second // 单次最长睡眠(便于周期复查终态)
+	settleDrainGrace     = 90 * time.Second // upper bound for running workers to wrap up gracefully; hard cancel beyond this
+	deadlinePollInterval = 2 * time.Second  // poll interval while deadline is not stamped / LLM not ready
+	deadlineMaxSleep     = 30 * time.Second // max single sleep (so terminal status is re-checked periodically)
 )
 
-// ---------- settling 状态 ----------
+// ---------- settling state ----------
 
 func (e *Engine) isSettling(taskID string) bool {
 	v, _ := e.settling.Load(taskID)
@@ -37,7 +37,7 @@ func (e *Engine) markSettling(taskID string) bool {
 	return !loaded
 }
 
-// ---------- 在跑计数(worker.Execute + planner.Plan),用于 drain ----------
+// ---------- running counters (worker.Execute + planner.Plan), used for drain ----------
 
 func (e *Engine) inflightCounter(taskID string) *int64 {
 	v, _ := e.inflight.LoadOrStore(taskID, new(int64))
@@ -102,13 +102,13 @@ func (e *Engine) stampFirstRun(t *Task) {
 	}
 	dl, err := e.m.StampTaskFirstRun(t.ID)
 	if err != nil {
-		log.Printf("[deadline] task %s 盖章 first_run 失败: %v", t.ID, err)
-		e.stamped.Delete(t.ID) // 允许下次重试
+		log.Printf("[deadline] task %s failed to stamp first_run: %v", t.ID, err)
+		e.stamped.Delete(t.ID) // allow retry next time
 		return
 	}
 	if dl > 0 {
 		e.deadline.Store(t.ID, dl)
-		log.Printf("[deadline] task %s 首次运行,截止于 %s", t.ID, time.Unix(dl, 0).Format("2006-01-02 15:04:05"))
+		log.Printf("[deadline] task %s first run, deadline at %s", t.ID, time.Unix(dl, 0).Format("2006-01-02 15:04:05"))
 	}
 }
 
@@ -123,7 +123,7 @@ func (e *Engine) clockCtx(base context.Context, t *Task, final bool) context.Con
 	return agent.WithTaskClock(base, agent.TaskClock{DeadlineUnix: dl, Final: final})
 }
 
-// ---------- 协调器 ----------
+// ---------- coordinator ----------
 
 // startDeadlineCoordinator launches the per-task deadline timer once (idempotent).
 // Called from Run() and from the restart reload path, so non-active timeout tasks
@@ -185,32 +185,32 @@ func (e *Engine) settleTask(ctx context.Context, t *Task) {
 	if !e.markSettling(t.ID) {
 		return
 	}
-	log.Printf("[deadline] task %s 到达超时上限,进入收尾时序", t.ID)
+	log.Printf("[deadline] task %s reached timeout limit, entering wrap-up sequence", t.ID)
 
-	// ④ 等在跑 worker/planner drain(在跑 run 因夹逼的 MaxDuration 自行进收尾);
-	// 超过 grace 仍未清空 → 硬 cancel 该任务 exec ctx(settling-aware 分支正确归类)。
+	// (4) Wait for running workers/planner to drain (running runs enter wrap-up on their own due to the clamped MaxDuration);
+	// if still not drained after grace -> hard cancel the task's exec ctx (the settling-aware branch classifies it correctly).
 	hardStop := time.Now().Add(settleDrainGrace)
 	for e.inflightCount(t.ID) > 0 {
 		if time.Now().After(hardStop) {
-			log.Printf("[deadline] task %s drain 超时(%s),硬取消在跑 run", t.ID, settleDrainGrace)
+			log.Printf("[deadline] task %s drain timed out (%s), hard-cancelling running runs", t.ID, settleDrainGrace)
 			e.cancelExec(t.ID, agent.AbortSettleDrainTimeout)
-			_ = sleepCtx(ctx, 3*time.Second) // 给 worker 分支一点时间落库/归类
+			_ = sleepCtx(ctx, 3*time.Second) // give the worker branch a moment to persist/classify
 			break
 		}
 		if sleepCtx(ctx, 500*time.Millisecond) {
-			return // 引擎整体关停
+			return // engine shutting down entirely
 		}
 	}
 
-	// ⑤ 终局一轮 planner(任务超时词,最后目标判定,不产新意图)。
+	// (5) Final planner round (task-timeout prompt, last goal verdict, no new intents).
 	met := e.runFinalPlannerRound(ctx, t)
 	if !e.beginTaskOperation(t.ID) {
 		return
 	}
 	defer e.decInflight(t.ID)
 
-	// ⑥ 定终态(带守卫):met → done(completed);否则 timeout。若常规路径已先落 done,
-	// 守卫(SetTaskStatusGuarded)会拒绝覆盖,保留 completed 语义。
+	// (6) Set terminal status (guarded): met -> done (completed); otherwise timeout. If the normal path already set done,
+	// the guard (SetTaskStatusGuarded) refuses to overwrite, preserving completed semantics.
 	status := "timeout"
 	if met {
 		status = "done"
@@ -218,11 +218,11 @@ func (e *Engine) settleTask(ctx context.Context, t *Task) {
 	won, err := e.m.SetTaskStatusGuarded(t.ID, status)
 	switch {
 	case err != nil:
-		log.Printf("[deadline] task %s 落终态失败: %v", t.ID, err)
+		log.Printf("[deadline] task %s failed to set terminal status: %v", t.ID, err)
 	case won:
-		log.Printf("[deadline] task %s 收尾完成,终态=%s", t.ID, status)
+		log.Printf("[deadline] task %s wrap-up complete, terminal status=%s", t.ID, status)
 	default:
-		log.Printf("[deadline] task %s 收尾时已是终态,保留原状态", t.ID)
+		log.Printf("[deadline] task %s already terminal at wrap-up, keeping original status", t.ID)
 	}
 }
 
@@ -246,7 +246,7 @@ func (e *Engine) runFinalPlannerRound(ctx context.Context, t *Task) (met bool) {
 		}
 		planner, _ = e.snapshotFor(t)
 	}
-	// 独立 ctx(不挂 execCancel,避免 pause/硬 cancel 打断这最后一轮),带 Final 注入任务超时词。
+	// Independent ctx (not tied to execCancel, so pause/hard cancel cannot interrupt this final round), with Final injecting the task-timeout prompt.
 	fctx := e.clockCtx(ctx, t, true)
 	if !e.beginTaskOperation(t.ID) {
 		return false
@@ -254,15 +254,15 @@ func (e *Engine) runFinalPlannerRound(ctx context.Context, t *Task) (met bool) {
 	defer e.decInflight(t.ID)
 	emit := func(r db.Activity) { e.emitActivity(t, r) }
 	e.emitActivity(t, db.Activity{Worker: "planner", Kind: "round",
-		Summary: fmt.Sprintf("任务超时收尾·终局判定(第 %d 轮)", e.nextPlannerRound(t.ID))})
+		Summary: fmt.Sprintf("Task timeout wrap-up · final verdict (round %d)", e.nextPlannerRound(t.ID))})
 	tTaskID, _ := strconv.ParseInt(t.ID, 10, 64)
 	e.BeginLLMCall(t.ID)
 	met, reason, err := planner.Plan(fctx, tTaskID, e.m.assets, t.Store, t.Goal, t.drainTriggers(), emit)
 	e.EndLLMCall(t.ID)
 	if err != nil {
-		log.Printf("[deadline] task %s 终局规划出错: %v", t.ID, err)
+		log.Printf("[deadline] task %s final planning error: %v", t.ID, err)
 	} else if met {
-		log.Printf("[deadline] task %s 终局判定目标达成: %s", t.ID, reason)
+		log.Printf("[deadline] task %s final verdict: goal met: %s", t.ID, reason)
 	}
 	return met
 }

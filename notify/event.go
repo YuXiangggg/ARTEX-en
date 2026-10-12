@@ -1,14 +1,16 @@
 package notify
 
-// Snapshot 是 notification_events.snapshot 这一 JSONB 列的契约。写方是 db 层的
-// 漏洞落库事务，读方是 server 层的投递引擎与过滤匹配。定义放在本包是因为它是
-// 「通知领域」的载荷：db 只负责序列化，不理解字段含义。
+// Snapshot is the contract for the notification_events.snapshot JSONB column. The writer is the db layer's
+// finding-persistence transaction; the readers are the server layer's delivery engine and filter matching. It is
+// defined in this package because it is a "notification domain" payload: db only serializes it and does not
+// understand the fields.
 //
-// 为什么冗余存漏洞字段而不在渲染时回查：漏洞事后会被改名、改级别、改状态，
-// 而推送内容应当反映**事发当时**的结论——回查会得到「事后被改成 low」的
-// 危险误导。另外 fan-out 与渲染因此不必 JOIN findings/tasks/assets 三张表。
+// Why finding fields are stored redundantly rather than looked up at render time: findings get renamed, re-graded
+// and change status afterwards, while a push should reflect the conclusion **at the time of the event**; a lookup
+// could yield the dangerously misleading "later changed to low". It also spares fan-out and rendering from JOINing
+// the findings/tasks/assets tables.
 type Snapshot struct {
-	// 事件类型：finding_created / finding_status_changed
+	// Event type: finding_created / finding_status_changed
 	Kind      string  `json:"kind"`
 	FindingID int64   `json:"finding_id"`
 	TaskID    int64   `json:"task_id"`
@@ -17,33 +19,33 @@ type Snapshot struct {
 	Severity  string  `json:"severity"`
 	Summary   string  `json:"summary"`
 	AssetIDs  []int64 `json:"asset_ids"`
-	// 仅 kind=finding_status_changed 时非空。
+	// Non-empty only when kind=finding_status_changed.
 	FromStatus string `json:"from_status,omitempty"`
 	ToStatus   string `json:"to_status,omitempty"`
 }
 
-// Item 是一条待推送的漏洞，供渠道渲染。
+// Item is one finding to be pushed, for channel rendering.
 type Item struct {
 	FindingID int64
 	Name      string
 	VulnClass string
 	Severity  string
 	Summary   string
-	// Assets 是解析后的资产展示名（如域名/IP）。由 server 层填充——
-	// 本包不碰数据库，拿不到名字。
+	// Assets are the resolved asset display names (e.g. domain/IP). Filled in by the server layer:
+	// this package does not touch the database and cannot get the names.
 	Assets []string
-	// DetailURL 是漏洞详情回链；为空表示未配 public_base_url，渲染时省略。
+	// DetailURL links back to the finding detail; empty means public_base_url is not configured, and it is omitted when rendering.
 	DetailURL string
-	// 状态变更事件专用；两项均非空时渲染成「待处理 → 已修复」。
+	// Only for status change events; when both are non-empty it renders as "Pending → Fixed".
 	FromStatus string
 	ToStatus   string
 }
 
-// IsStatusChange 报告该条目是否为状态变更事件。
+// IsStatusChange reports whether the item is a status change event.
 func (i Item) IsStatusChange() bool { return i.FromStatus != "" || i.ToStatus != "" }
 
-// Title 返回条目的展示标题：优先人工命名的 name，回退漏洞类型 vulnclass，
-// 两者都空时用一个占位符——绝不输出空标题。
+// Title returns the item's display title: prefer the human-assigned name, fall back to the vulnclass,
+// and use a placeholder when both are empty; never output an empty title.
 func (i Item) Title() string {
 	if i.Name != "" {
 		return i.Name
@@ -51,19 +53,19 @@ func (i Item) Title() string {
 	if i.VulnClass != "" {
 		return i.VulnClass
 	}
-	return "(未命名漏洞)"
+	return "(unnamed finding)"
 }
 
-// Message 是一次渠道发送的完整内容。
+// Message is the complete content of one channel send.
 type Message struct {
-	// 单条推送时长度为 1；汇总推送（digest）时为一整批。
-	// 空切片是非法的，调用方须保证至少一条。
+	// Length 1 for a single push; a whole batch for a digest push.
+	// An empty slice is invalid; the caller must guarantee at least one item.
 	Items []Item
-	// Batch=true 时按汇总消息渲染（换标题、带上时间窗与条数）。
+	// When Batch=true it renders as a digest (different title, with time window and item count).
 	Batch bool
-	// WindowMinutes 是汇总周期（分钟），仅 Batch=true 时用于文案「近 N 分钟」。
-	// 刻意由配置显式传入而不是渲染时算 time.Since：渲染保持确定性，才好测。
+	// WindowMinutes is the digest period (minutes), used only when Batch=true for the text "last N minutes".
+	// Deliberately passed explicitly from config rather than computed via time.Since at render time: keeping rendering deterministic makes it testable.
 	WindowMinutes int
-	// HomeURL 是平台面板地址（全局 public_base_url）；空则不带面板入口。
+	// HomeURL is the platform dashboard address (global public_base_url); if empty, no dashboard link is included.
 	HomeURL string
 }

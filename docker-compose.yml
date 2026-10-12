@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-artex}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 设置 POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Please set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:-artex}
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -15,8 +15,8 @@ services:
     restart: unless-stopped
 
   artex:
-    # 镜像源由本仓库自维护（原 autumn27/artex 已从 Docker Hub 删除）。
-    # 正常部署直接拉取本镜像；拉取失败（或想改代码）时本地构建：
+    # The image is maintained by this repo (the original autumn27/artex has been removed from Docker Hub).
+    # Normal deployments just pull this image; if pulling fails (or you want to modify the code), build locally:
     #   docker compose build
     image: mianhuatang11/artex:${ARTEX_TAG:-latest}
     build:
@@ -37,11 +37,11 @@ services:
       - "8787:8787"
       - "127.0.0.1:8788:8788"
     volumes:
-      # 把数据目录（含 jwt.key、SQLite 等）绑定到项目根目录的 data/，
-      # 方便在宿主机直接查看/备份，容器重建也不丢。
+      # Bind the data directory (including jwt.key, SQLite, etc.) to data/ in the project root,
+      # so it can be inspected/backed up directly on the host and survives container rebuilds.
       - ./data:/app/data
-      # 把项目根目录的 skills 挂进容器（覆盖镜像内置的 /app/skills）；
-      # 改 skill 无需重建镜像，容器读的就是宿主机这份。
+      # Mount the project root's skills into the container (overriding the image's built-in /app/skills);
+      # editing a skill needs no image rebuild -- the container reads the host's copy directly.
       - ./skills:/app/skills
     restart: unless-stopped
 

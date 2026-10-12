@@ -64,13 +64,13 @@ export function TablePagination({
             ))}
           </SelectContent>
         </Select>
-        <span>条/页</span>
+        <span>per page</span>
         {total > 0 ? (
           <span className="tabular-nums">
-            {from}–{to} / 共 {total} 条
+            {from}–{to} of {total}
           </span>
         ) : (
-          <span>共 0 条</span>
+          <span>0 total</span>
         )}
       </div>
 
@@ -83,7 +83,7 @@ export function TablePagination({
                 size="icon-sm"
                 disabled={safePage === 1}
                 onClick={() => onPageChange(safePage - 1)}
-                aria-label="上一页"
+                aria-label="Previous page"
               >
                 <ChevronLeftIcon className="size-4" />
               </Button>
@@ -112,7 +112,7 @@ export function TablePagination({
                 size="icon-sm"
                 disabled={safePage === totalPages}
                 onClick={() => onPageChange(safePage + 1)}
-                aria-label="下一页"
+                aria-label="Next page"
               >
                 <ChevronRightIcon className="size-4" />
               </Button>

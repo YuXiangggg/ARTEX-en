@@ -34,7 +34,7 @@ func decodeTaskTemplateRequest(w http.ResponseWriter, r *http.Request, req *task
 	if err != nil {
 		var tooLarge *http.MaxBytesError
 		if errors.As(err, &tooLarge) {
-			writeErr(w, http.StatusRequestEntityTooLarge, "请求正文过大")
+			writeErr(w, http.StatusRequestEntityTooLarge, "request body too large")
 		} else {
 			writeErr(w, http.StatusBadRequest, err.Error())
 		}
@@ -75,7 +75,7 @@ func validateTaskTemplateRequest(req taskTemplateRequest) error {
 			value = strings.Join(strings.Fields(value), " ")
 		}
 		if utf8.RuneCountInString(value) > check.limit {
-			return fmt.Errorf("%s 最多 %d 个字符", check.name, check.limit)
+			return fmt.Errorf("%s can be at most %d characters", check.name, check.limit)
 		}
 	}
 	return nil
@@ -86,7 +86,7 @@ func writeTaskTemplateErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, db.ErrTaskTemplateInvalid):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, db.ErrTaskTemplateNameConflict):
-		writeErr(w, http.StatusConflict, "模板名称已存在")
+		writeErr(w, http.StatusConflict, "template name already exists")
 	case errors.Is(err, db.ErrTaskTemplateNotFound):
 		writeErr(w, http.StatusNotFound, "task template not found")
 	default:
@@ -122,7 +122,7 @@ func (s *Server) pgCreateTaskTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	rules, err := buildTaskInterceptRules(req.InterceptRules)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "拦截/允许规则无效："+err.Error())
+		writeErr(w, http.StatusBadRequest, "invalid intercept/allow rule: "+err.Error())
 		return
 	}
 	template, err := pg.CreateTaskTemplate(db.TaskTemplateInput{
@@ -161,7 +161,7 @@ func (s *Server) pgUpdateTaskTemplate(w http.ResponseWriter, r *http.Request) {
 	_, catPresent := present["category_id"]
 	_, rulesPresent := present["intercept_rules"]
 	if req.Name == nil && req.Description == nil && req.Goal == nil && !catPresent && !rulesPresent {
-		writeErr(w, http.StatusBadRequest, "至少需要提供 name、description、goal、category_id 或 intercept_rules")
+		writeErr(w, http.StatusBadRequest, "at least one of name, description, goal, category_id or intercept_rules is required")
 		return
 	}
 	patch := db.TaskTemplatePatch{Name: req.Name, Description: req.Description, Goal: req.Goal}
@@ -172,7 +172,7 @@ func (s *Server) pgUpdateTaskTemplate(w http.ResponseWriter, r *http.Request) {
 	if rulesPresent {
 		rules, err := buildTaskInterceptRules(req.InterceptRules)
 		if err != nil {
-			writeErr(w, http.StatusBadRequest, "拦截/允许规则无效："+err.Error())
+			writeErr(w, http.StatusBadRequest, "invalid intercept/allow rule: "+err.Error())
 			return
 		}
 		patch.SetInterceptRules = true

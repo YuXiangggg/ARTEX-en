@@ -37,8 +37,8 @@ func drainWithCtx(t *testing.T, ctx context.Context, in QueryInput, deps QueryDe
 // turn-boundary-only budget check could never settle.
 func TestSettlementOnToolOverrunsBudget(t *testing.T) {
 	m := &scriptedModel{turns: [][]llm.StreamEvent{
-		toolTurn("s1", "sleep", `{"seconds":3600}`), // hangs far past MaxDuration
-		textTurn("已写回事实并总结"),                          // settlement turn → natural stop
+		toolTurn("s1", "sleep", `{"seconds":3600}`),   // hangs far past MaxDuration
+		textTurn("facts written back and summarized"), // settlement turn → natural stop
 	}}
 	in := QueryInput{
 		Messages:       []llm.Message{llm.UserText("go")},
@@ -46,12 +46,12 @@ func TestSettlementOnToolOverrunsBudget(t *testing.T) {
 		PermissionMode: permission.ModeBypass,
 		WorkingDir:     t.TempDir(),
 		MaxDuration:    100 * time.Millisecond, // budget the run so the sleep overruns it
-		Settlement:     &Settlement{Prompt: "SETTLE_ON_TIMEOUT 请写回事实"},
+		Settlement:     &Settlement{Prompt: "SETTLE_ON_TIMEOUT please write back the facts"},
 	}
 	term := drainWithCtx(t, context.Background(), in, QueryDeps{CallModel: m.call})
 
 	if term.Reason != ReasonTimeout {
-		t.Fatalf("reason=%v, want ReasonTimeout（工具超墙→就地收尾，非 aborted_tools）", term.Reason)
+		t.Fatalf("reason=%v, want ReasonTimeout (tool overran the wall -> settle in place, not aborted_tools)", term.Reason)
 	}
 	found := false
 	for _, msg := range term.Messages {
@@ -62,10 +62,10 @@ func TestSettlementOnToolOverrunsBudget(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("超墙收尾提示未被注入到对话")
+		t.Fatalf("overrun settlement prompt was not injected into the conversation")
 	}
 	if m.calls != 2 {
-		t.Fatalf("应有 2 次模型调用(主+收尾)，得 %d", m.calls)
+		t.Fatalf("expected 2 model calls (main+settlement), got %d", m.calls)
 	}
 }
 
@@ -90,16 +90,16 @@ func TestParentCancelStillAbortsNoSettlement(t *testing.T) {
 	term := drainWithCtx(t, ctx, in, QueryDeps{CallModel: m.call})
 
 	if term.Reason != ReasonAbortedTools {
-		t.Fatalf("reason=%v, want ReasonAbortedTools（父 ctx 取消=真中断，不收尾）", term.Reason)
+		t.Fatalf("reason=%v, want ReasonAbortedTools (parent ctx cancel = real abort, no settlement)", term.Reason)
 	}
 	for _, msg := range term.Messages {
 		for _, c := range msg.Content {
 			if strings.Contains(c.Text, "SHOULD_NOT_APPEAR") {
-				t.Fatalf("父 ctx 取消时不应进入收尾，却注入了收尾提示")
+				t.Fatalf("on parent ctx cancel should not enter settlement, yet a settlement prompt was injected")
 			}
 		}
 	}
 	if m.calls != 1 {
-		t.Fatalf("父取消后不应再调用模型收尾，模型调用数=%d，want 1", m.calls)
+		t.Fatalf("after parent cancel the model should not be called again for settlement, model calls=%d, want 1", m.calls)
 	}
 }

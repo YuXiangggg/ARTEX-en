@@ -319,7 +319,7 @@ func TestLongSessionArchivesRemainComplete(t *testing.T) {
 			}
 		} else {
 			// A higher tier holds the summaries it absorbed, each pointing on.
-			if !strings.Contains(body, "绝对路径") {
+			if !strings.Contains(body, "Absolute path") {
 				t.Fatalf("block %s: tier-%d archive names no child archive:\n%s", b.BlockID, b.Tier, head(body, 400))
 			}
 		}
