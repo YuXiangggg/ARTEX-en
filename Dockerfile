@@ -26,6 +26,9 @@ ARG TARGETARCH
 ARG GOPROXY=https://goproxy.cn,https://proxy.golang.org,direct
 WORKDIR /src
 COPY go.mod go.sum ./
+# norma is a local module (replace => ./norma in go.mod), so its go.mod must be
+# present before `go mod download` can resolve the replace directive.
+COPY norma/ ./norma/
 RUN go mod download
 COPY . .
 # Copy static frontend output from the web stage (.dockerignore already excludes the host dist, so no conflict)
